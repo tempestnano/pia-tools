@@ -1,16 +1,24 @@
 #!/usr/bin/sh
 
-test "$PIA_CONF" || PIA_CONF='/etc/pia-tools.conf'
+if [[ -n "$config" ]] ; then
+        PIA_CONF="$config"
+else
+        test "$PIA_CONF" || PIA_CONF='/etc/pia-tools.conf'
+fi
 [[ -r "$PIA_CONF" ]] && . $PIA_CONF
 
 if [[ -n "$VPN_USER" ]]; then
   ip route flush table $VPN_USER
   ip route flush cache
+  if [[ $VPN_USER != "transmission" ]]; then
+	iptables-save | grep -v "$VPN_USER" | iptables-restore
+  else
+	systemctl stop transmission
+  fi
 fi
-
-
+    iptables-save | grep -v $dev | iptables-restore
 # Restore DNS settings
-(sleep 5 && pia-tools --restore-dns --check)&
+(sleep 5 && config="$config" pia-tools --restore-dns --check)&
 # Update conky
 (sleep 5 && killall -SIGUSR1 conky)&
 

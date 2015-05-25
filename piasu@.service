@@ -1,0 +1,13 @@
+[Unit]
+Description=PIA OpenVPN connection
+After=network.target
+
+[Service]
+Type=forking
+EnvironmentFile=/etc/pia-tools.d/%i.conf
+ExecStartPre=/usr/sbin/pia-tools -I -C "$EnvironmentFile"
+ExecStart=/usr/sbin/openvpn --auth-nocache --cd /etc/openvpn/pia --config /etc/openvpn/pia/"$VPN_CONFIG".conf --daemon openvpn@%i
+ExecStartPost=/usr/sbin/pia-tools -r -C "$EnvironmentFile"
+
+[Install]
+WantedBy=multi-user.target

@@ -6,6 +6,7 @@ After=network.target
 Type=forking
 # EnvironmentFile=/etc/pia-tools.conf
 ExecStart=/usr/sbin/openvpn --auth-nocache --cd /etc/openvpn/pia --config /etc/openvpn/pia/%i.ovpn --daemon openvpn@%i
+ExecStartPost=/usr/sbin/pia-tools -r
 
 [Install]
 WantedBy=multi-user.target

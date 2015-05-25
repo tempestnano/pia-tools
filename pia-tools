@@ -6,46 +6,6 @@
 # Documentation: cf. pia-tools.groff
 # Dependencies: curl openvpn sudo systemd transmission-daemon unzip
 
-# Source config file
-test "$PIA_CONF" || PIA_CONF='/etc/pia-tools.conf'
-[[ -r "$PIA_CONF" ]] && . $PIA_CONF
-
-# Setup default config if not already set in pia-tools.conf
-if [[ -z "$PIA_CONFIG_DIR" ]]; then
-    PIA_CONFIG_DIR='/etc/openvpn/pia'
-fi
-if [[ -z "$PIA_CONFIG_URL" ]]; then
-    PIA_CONFIG_URL='https://www.privateinternetaccess.com/openvpn/openvpn.zip'
-fi
-if [[ -z "$PIA_COMMON_CONFIG" ]]; then
-    PIA_COMMON_CONFIG="$PIA_CONFIG_DIR/pia_common"
-fi
-if [[ -z "$PIA_SERVERS_FILE" ]]; then
-    PIA_SERVERS_FILE="$PIA_CONFIG_DIR/piaservers"
-fi
-if [[ -z "$PIA_SERVERS_IP_FILE" ]]; then
-    PIA_SERVERS_IP_FILE="$PIA_CONFIG_DIR/piaserverips"
-fi
-if [[ -z "$PIA_PASSWD_FILE" ]]; then
-    PIA_PASSWD_FILE="$PIA_CONFIG_DIR/passwd"
-fi
-if [[ -z "$PIA_CLIENT_ID_FILE" ]]; then
-    PIA_CLIENT_ID_FILE="$PIA_CONFIG_DIR/clientid"
-fi
-if [[ -z "$TRANSMISSION_SETTINGS_FILE" ]]; then
-    TRANSMISSION_SETTINGS_FILE='/home/dl/.config/transmission-daemon/settings.json'
-fi
-if [[ -z "$PIA_OPEN_PORT_FILE" ]]; then
-    PIA_OPEN_PORT_FILE="$PIA_CONFIG_DIR/open_port"
-fi
-PIA_OPEN_PORT="$(cat $PIA_OPEN_PORT_FILE 2>/dev/null)"
-if [[ -z "$NETWORK_DEVICES" ]]; then
-    NETWORK_DEVICES=$(ip route get "$(host privateinternetaccess.com | awk '/has address/ { print $4 }')" | awk '/dev/ { print $5 }')
-fi
-if [[ -z "$VIRT_NET_DEV" ]]; then
-    VIRT_NET_DEV='tun0'
-fi
-
 usage() {
     echo "Usage: $1 [-p|r] [-a|d] [-u] [-c] [-h]"
     echo "-p: Request new port"
@@ -179,6 +139,14 @@ transmission_peer_port_update() {
         fi
         check_ovpn && systemctl restart transmission
     fi
+	comment="TransmissionPort"
+	iptables-save | grep -v "testme" | iptables-restore
+	#sudo iptables-save | grep -v "${comment}" > /tmp/iptables.save
+	iptables-save | grep -v "${PIA_CONF}_PORT" | iptables-restore
+	sudo iptables-restore /tmp/iptables.save
+	sudo iptables -A INPUT -i $DEVICE -p tcp --dport $PORTNUM -j ACCEPT -m comment --comment "${comment}"
+	sudo iptables -A INPUT -i $DEVICE -p udp --dport $PORTNUM -j ACCEPT -m comment --comment "${comment}"
+
     echo 'Done!'
 }
 
@@ -188,6 +156,9 @@ new_client_id() {
 }
 
 request_port() {
+Base_Config=$(basename "$config")
+	echo $Base_Config
+    . /tmp/"$PIA_CONF"
     local username="$(head -1 $PIA_PASSWD_FILE)"
     local passwd="$(tail -1 $PIA_PASSWD_FILE)"
     local local_vpn_ip="$(ip addr show $VIRT_NET_DEV | grep inet | awk '{ print $2 }')"
@@ -202,8 +173,7 @@ request_port() {
     if [[ -n "$VPN_USER" ]]; then
 	PIA_CURL_DATA="user=$username&pass=$passwd&client_id=$client_id&local_ip=$local_vpn_ip"
 	PIA_PORT_URL='https://www.privateinternetaccess.com/vpninfo/port_forward_assignment'
-	PIA_CURL=$(sudo -u transmission curl -Ld "$PIA_CURL_DATA" "$PIA_PORT_URL")
-	echo $PIA_CURL
+	PIA_CURL=$(sudo -u $VPN_USER curl -Ld "$PIA_CURL_DATA" "$PIA_PORT_URL")
 	PIA_OPEN_PORT_NEW=$(echo $PIA_CURL | grep -oE "[0-9]+" 2>&1)
     else
         PIA_OPEN_PORT_NEW="$(\
@@ -248,6 +218,14 @@ setup() {
     echo "Now you can connect to the VPN"
     echo "# systemctl start pia@Sweden"
 }
+
+single_user_init(){
+	rm -f "$PIA_CONFIG_DIR"/$CONFIG
+	cp "$PIA_CONFIG_DIR"/$VPN_CONFIG "$PIA_CONFIG_DIR"/$CONFIG 
+	cat "$PIA_COMMON_CONFIG" >> "$PIA_CONFIG_DIR"/$CONFIG
+}
+
+
 
 update_config() {
     echo -n 'Updating configuration... '
@@ -372,11 +350,11 @@ fi
 # Every function except help needs root permissions
 check_root "$*"
 
-ARGS=$(getopt -o "adprfguscihvS" \
+ARGS=$(getopt -o "adprfguscihvSIC:" \
               -l "allow,disallow,\
                   port,refresh,pia-dns,google-dns,restore-dns,\
                   restore,force,\
-                  update,setup,info,help,verbose" \
+                  update,setup,info,help,verbose,SingleUser,Init-Single-User,Config_File" \
               -n "$0" -- "$@")
 
 [[ $? -ne 0 ]] && { usage "$(basename $0)"; exit 1; }
@@ -398,6 +376,18 @@ while true; do
         -S|--SingleUser)
             test -z "$VPN_USER" && exit 1
             action_single_user=$VPN_USER
+            shift
+            ;;
+	-I|--Init-Single-User)
+	    test -z "$VPN_USER" && exit 1
+	    action_single_user_init=$VPN_USER
+            shift
+            ;;
+        -C|--Config_File)
+	    PIA_CONF=$2            
+            PIA_CONF_BASE=$(basename $PIA_CONF)
+		echo "config file $PIA_CONF"
+		echo "$PIA_CONF_BASE"
             shift
             ;;
         -p|--port)
@@ -460,15 +450,58 @@ while true; do
             shift
             ;;
         --)
+	echo "1"
       shift
       break;;
     esac
 done
-
 # When started by OpenVPN daemon (up script) this script gets called like this:
 # $0 $@ tun0 1500 1542 10.185.1.6 10.185.1.5 init
 [[ -n $2 ]] && VIRT_NET_DEV=$1
 [[ -n $4 ]] && LOCAL_IP=$4
+
+# Source config file
+
+test "$PIA_CONF" || PIA_CONF='/etc/pia-tools.conf'
+[[ -r "$PIA_CONF" ]] && . $PIA_CONF
+
+# Setup default config if not already set in pia-tools.conf
+if [[ -z "$PIA_CONFIG_DIR" ]]; then
+    PIA_CONFIG_DIR='/etc/openvpn/pia'
+fi
+if [[ -z "$PIA_CONFIG_URL" ]]; then
+    PIA_CONFIG_URL='https://www.privateinternetaccess.com/openvpn/openvpn.zip'
+fi
+if [[ -z "$PIA_COMMON_CONFIG" ]]; then
+    PIA_COMMON_CONFIG="$PIA_CONFIG_DIR/pia_common"
+fi
+if [[ -z "$PIA_SERVERS_FILE" ]]; then
+    PIA_SERVERS_FILE="$PIA_CONFIG_DIR/piaservers"
+fi
+if [[ -z "$PIA_SERVERS_IP_FILE" ]]; then
+    PIA_SERVERS_IP_FILE="$PIA_CONFIG_DIR/piaserverips"
+fi
+if [[ -z "$PIA_PASSWD_FILE" ]]; then
+    PIA_PASSWD_FILE="$PIA_CONFIG_DIR/passwd"
+fi
+if [[ -z "$PIA_CLIENT_ID_FILE" ]]; then
+    PIA_CLIENT_ID_FILE="$PIA_CONFIG_DIR/clientid"
+fi
+if [[ -z "$TRANSMISSION_SETTINGS_FILE" ]]; then
+    TRANSMISSION_SETTINGS_FILE='/home/dl/.config/transmission-daemon/settings.json'
+fi
+if [[ -z "$PIA_OPEN_PORT_FILE" ]]; then
+    PIA_OPEN_PORT_FILE="$PIA_CONFIG_DIR/open_port"
+fi
+PIA_OPEN_PORT="$(cat $PIA_OPEN_PORT_FILE 2>/dev/null)"
+if [[ -z "$NETWORK_DEVICES" ]]; then
+    NETWORK_DEVICES=$(ip route get "$(host privateinternetaccess.com | awk '/has address/ { print $4 }')" | awk '/dev/ { print 
+$5 }')
+fi
+if [[ -z "$VIRT_NET_DEV" ]]; then
+    VIRT_NET_DEV='tun0'
+fi
+
 
 test "$action_help" && { usage "$(basename $0)"; exit $?; }
 test "$action_info" && { info; exit $?; }
@@ -476,6 +509,7 @@ test "$action_setup" && { setup; exit $?; }
 test "$action_update" && update_config
 test "$action_check" && check_ovpn
 test "$action_single_user" && { rt_tables_add ; iptables_mark; exit $?; }
+test "$action_single_user_init" && { single_user_init; exit $?; }
 case "$action_dns" in
     google) google_dns ;;
     restore) restore_dns ;;

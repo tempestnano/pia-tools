@@ -17,13 +17,13 @@ source=('https://raw.githubusercontent.com/tempestnano/pia-tools/Single_user/pia
         'https://raw.githubusercontent.com/tempestnano/pia-tools/Single_user/pia-route-up'
         'https://raw.githubusercontent.com/tempestnano/pia-tools/Single_user/pia_common_single_user'
         'https://raw.githubusercontent.com/tempestnano/pia-tools/Single_user/pia-tools.install')
-md5sums=('df0564baf18a62b74010e5a781629da3'
+md5sums=('7b59d168bbb2ea1229c406d61795ebd5'
          'b3fa2a6f12c6067bcb0024e54e25cf92'
          'f74962b853215b88b54bad3dad9ba004'
          '621f9228ba793b4307b354e92b8918c1'
-         'cb9e0eb412089765d8a3083219f5c976'
+         'f25f00fe408f31e50d46d69a597c6ece'
          '55a668ce83f4d252ed4808408c0b9390'
-         '3aa6dffb97bfb02a719c56b53de5658a'
+         'a0756cd1b260edfabfa2c3f33fa0189b'
          '80724ce4e66d14e2fef83edae778df0c'
          '24f69e9eea41a1247a974c7d5d3d9c30')
 install="${pkgname}.install"

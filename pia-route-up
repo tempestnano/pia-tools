@@ -1,9 +1,15 @@
 #!/usr/bin/sh
 
 
-# Source config file
-test "$PIA_CONF" || PIA_CONF='/etc/pia-tools.conf'
+if [[ -n "$CONFIG" ]] ; then
+	PIA_CONF="$CONFIG"
+else
+	test "$PIA_CONF" || PIA_CONF='/etc/pia-tools.conf'
+fi
 [[ -r "$PIA_CONF" ]] && . $PIA_CONF
+
+
+
 
 if [[ -z "$TRANSMISSION_SETTINGS_FILE" ]]; then
     TRANSMISSION_SETTINGS_FILE='/home/dl/.config/transmission-daemon/settings.json'
@@ -11,6 +17,12 @@ fi
 check_transmission() {
     systemctl is-active transmission > /dev/null 2>&1
 }
+#echo $config
+Base_Config=$(basename "$config")
+rm -f "/tmp/$Base_Config"
+echo 'VIRT_NET_DEV='$dev >> "/tmp/$Base_Config"
+echo 'LOCAL_IP='$ifconfig_local >> "/tmp/$Base_Config"
+
 if [[ -n "$VPN_USER" ]]; then
   ip route add "$trusted_ip"/32 via $route_net_gateway table $VPN_USER
   ip route add 0.0.0.0/1 via $route_vpn_gateway table $VPN_USER
@@ -24,16 +36,9 @@ if [[ -n "$VPN_USER" ]]; then
   ip route flush cache
 fi
 
-if check_transmission; then
-    echo -n 'Stopping transmission... '
-    systemctl stop transmission
-    echo 'Done!'
-fi    
 sed -i "s/.*bind-address-ipv4.*/    \"bind-address-ipv4\": \"$ifconfig_local\",/g" $TRANSMISSION_SETTINGS_FILE
-if check_transmission; then
-    echo -n 'Starting transmission... '
-    systemctl start transmission
-    echo 'Done!'
-fi
+
+    pkill -HUP transmission-da
+( /usr/bin/sleep 60 ; pia-tools -r ) &
 
 exit 0

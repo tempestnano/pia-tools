@@ -139,13 +139,13 @@ transmission_peer_port_update() {
         fi
         check_ovpn && systemctl restart transmission
     fi
-	comment="TransmissionPort"
+	comment="${PIA_CONF_BASE}_PORT"
 	iptables-save | grep -v "testme" | iptables-restore
 	#sudo iptables-save | grep -v "${comment}" > /tmp/iptables.save
-	iptables-save | grep -v "${PIA_CONF}_PORT" | iptables-restore
+	iptables-save | grep -v "${comment}" | iptables-restore
 	sudo iptables-restore /tmp/iptables.save
-	sudo iptables -A INPUT -i $DEVICE -p tcp --dport $PORTNUM -j ACCEPT -m comment --comment "${comment}"
-	sudo iptables -A INPUT -i $DEVICE -p udp --dport $PORTNUM -j ACCEPT -m comment --comment "${comment}"
+	sudo iptables -A INPUT -i $VIRT_NET_DEV -p tcp --dport "$PIA_OPEN_PORT_NEW" -j ACCEPT -m comment --comment "$comment"
+	sudo iptables -A INPUT -i $VIRT_NET_DEV -p udp --dport "$PIA_OPEN_PORT_NEW" -j ACCEPT -m comment --comment "$comment"
 
     echo 'Done!'
 }
@@ -156,9 +156,7 @@ new_client_id() {
 }
 
 request_port() {
-Base_Config=$(basename "$config")
-	echo $Base_Config
-    . /tmp/"$PIA_CONF"
+    [[ -e /tmp/$PIA_CONF_BASE ]] && . /tmp/$PIA_CONF_BASE
     local username="$(head -1 $PIA_PASSWD_FILE)"
     local passwd="$(tail -1 $PIA_PASSWD_FILE)"
     local local_vpn_ip="$(ip addr show $VIRT_NET_DEV | grep inet | awk '{ print $2 }')"
@@ -220,9 +218,13 @@ setup() {
 }
 
 single_user_init(){
-	rm -f "$PIA_CONFIG_DIR"/$CONFIG
-	cp "$PIA_CONFIG_DIR"/$VPN_CONFIG "$PIA_CONFIG_DIR"/$CONFIG 
-	cat "$PIA_COMMON_CONFIG" >> "$PIA_CONFIG_DIR"/$CONFIG
+	# Assume Netherlands if no vpn target specified
+	[[ -z $VPN_CONFIG ]] && VPN_CONFIG=Netherlands
+	VPN_CONFIG_TMP=/tmp/"$PIA_CONF_BASE".ovpn
+	# Create temp ovpn file
+	rm -f "$VPN_CONFIG_TMP"
+	cp "$PIA_CONFIG_DIR"/"$VPN_CONFIG".ovpn "$VPN_CONFIG_TMP"
+	cat "$PIA_COMMON_CONFIG" >> "$VPN_CONFIG_TMP"
 }
 
 
@@ -350,18 +352,16 @@ fi
 # Every function except help needs root permissions
 check_root "$*"
 
-ARGS=$(getopt -o "adprfguscihvSIC:" \
+ARGS=`getopt -o "adprfguscihvS::I::C:" \
               -l "allow,disallow,\
                   port,refresh,pia-dns,google-dns,restore-dns,\
                   restore,force,\
-                  update,setup,info,help,verbose,SingleUser,Init-Single-User,Config_File" \
-              -n "$0" -- "$@")
-
+                  update,setup,info,help,verbose,SingleUser,Init-Single-User,Config_File:" \
+              -n "$0" -- "$@"`
 [[ $? -ne 0 ]] && { usage "$(basename $0)"; exit 1; }
-
-eval set -- "$ARGS"
-
-while true; do
+eval set -- $ARGS
+while true ; do
+    
     case "$1" in
         -a|--allow)
             test "$action_fw" && exit 1
@@ -374,21 +374,23 @@ while true; do
             shift
             ;;
         -S|--SingleUser)
-            test -z "$VPN_USER" && exit 1
-            action_single_user=$VPN_USER
-            shift
+            VPN_USER=$2	
+            test -z "$VPN_USER" && VPN_USER=transmission
+	    action_single_user=$VPN_USER
+            shift 2
             ;;
 	-I|--Init-Single-User)
-	    test -z "$VPN_USER" && exit 1
+	    VPN_USER=$2    
+	    test -z "$VPN_USER" && VPN_USER=transmission
 	    action_single_user_init=$VPN_USER
-            shift
+	    shift 2
             ;;
         -C|--Config_File)
-	    PIA_CONF=$2            
-            PIA_CONF_BASE=$(basename $PIA_CONF)
-		echo "config file $PIA_CONF"
-		echo "$PIA_CONF_BASE"
-            shift
+	    PIA_CONF=$2
+	    echo $2
+	    PIA_CONF_FILENAME=$(basename $2)            
+	    PIA_CONF_BASE=${PIA_CONF_FILENAME/.conf/}
+	    shift 2
             ;;
         -p|--port)
             test "$action_port" && exit 1
@@ -450,8 +452,7 @@ while true; do
             shift
             ;;
         --)
-	echo "1"
-      shift
+            shift
       break;;
     esac
 done
@@ -461,7 +462,7 @@ done
 [[ -n $4 ]] && LOCAL_IP=$4
 
 # Source config file
-
+test "$PIA_CONF" || PIA_CONF_BASE='pia-tools'
 test "$PIA_CONF" || PIA_CONF='/etc/pia-tools.conf'
 [[ -r "$PIA_CONF" ]] && . $PIA_CONF
 

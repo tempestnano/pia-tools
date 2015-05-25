@@ -5,16 +5,21 @@ if [[ -n "$config" ]] ; then
 else
         test "$PIA_CONF" || PIA_CONF='/etc/pia-tools.conf'
 fi
+echo $config
 [[ -r "$PIA_CONF" ]] && . $PIA_CONF
 
 if [[ -n "$VPN_USER" ]]; then
+  
   ip route flush table $VPN_USER
   ip route flush cache
-  if [[ $VPN_USER != "transmission" ]]; then
-	iptables-save | grep -v "$VPN_USER" | iptables-restore
-  else
-	systemctl stop transmission
-  fi
+  
+  iptables-save | grep -v "$VPN_USER" | iptables-restore
+  comment=${config/\/tmp//}
+  comment=${config/.conf/_PORT}
+  iptables-save | grep -v "$comment" | iptables-restore
+fi
+if [[ "$VPN_USER" = transmission ]]; then
+  systemctl stop transmission
 fi
     iptables-save | grep -v $dev | iptables-restore
 # Restore DNS settings
